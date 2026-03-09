@@ -134,7 +134,7 @@ export class PolymarketCollector {
   // 获取高交易量市场
   async fetchHighVolumeMarkets(minVolume: number = 100000): Promise<PolymarketMarket[]> {
     try {
-      const markets = await this.fetchMarkets(100)
+      const markets = await this.fetchMarkets()
       return markets.filter((m) => parseFloat(m.volume) >= minVolume)
     } catch (error) {
       console.error('Polymarket high volume markets error:', error)

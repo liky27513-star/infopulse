@@ -1,4 +1,4 @@
-import { ProcessedArticle } from './summarizer'
+import { ProcessedArticle } from './groq-processor'
 import { prisma } from '../db'
 import { config } from '../config'
 

@@ -85,7 +85,7 @@ export class Scheduler {
         minute: '2-digit',
       })
 
-      const emailHtml = render(
+      const emailHtml = await render(
         DigestEmail({
           articles: sorted.slice(0, 30), // 只发送前30条
           digestTime,
@@ -180,7 +180,7 @@ export class Scheduler {
       const recipients = subscribers.map((s) => s.email)
 
       for (const article of unsentBreaking) {
-        const emailHtml = render(
+        const emailHtml = await render(
           BreakingNewsEmail({
             article,
             siteUrl: config.siteUrl,

@@ -1,4 +1,4 @@
-import { ProcessedArticle } from './summarizer'
+import { ProcessedArticle } from './groq-processor'
 import { Category } from '../config'
 
 // 去重：基于URL和标题相似度

@@ -1,6 +1,6 @@
 import * as React from 'react'
 import { Html, Head, Body, Container, Heading, Text, Link, Section, Button } from '@react-email/components'
-import { ProcessedArticle } from '../../ai/summarizer'
+import { ProcessedArticle } from '../../ai/groq-processor'
 
 interface BreakingNewsEmailProps {
   article: ProcessedArticle

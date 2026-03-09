@@ -1,6 +1,6 @@
 import * as React from 'react'
 import { Html, Head, Body, Container, Heading, Text, Link, Section, Hr } from '@react-email/components'
-import { ProcessedArticle } from '../../ai/summarizer'
+import { ProcessedArticle } from '../../ai/groq-processor'
 import { config, Category } from '../../config'
 
 interface DigestEmailProps {

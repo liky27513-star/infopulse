@@ -11,12 +11,9 @@ const createTransporter = () => {
       user: process.env.SMTP_USER,
       pass: process.env.SMTP_PASS, // QQ邮箱授权码
     },
-    // 禁用代理
     tls: {
       rejectUnauthorized: true,
     },
-    // 明确禁用代理
-    proxy: false,
   })
 }
 
