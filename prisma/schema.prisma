@@ -1,0 +1,66 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Subscriber {
+  id         String   @id @default(cuid())
+  email      String   @unique
+  name       String?
+  categories String   @default("ai,tech,politics,economy,crypto,prediction")
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model NewsItem {
+  id          String    @id @default(cuid())
+  title       String
+  summary     String    // AI 生成的中文摘要
+  category    String    // ai|tech|politics|economy|crypto|prediction
+  importance  Int       @default(5) // 1-10 重要性评分
+  source      String
+  sourceUrl   String    @unique
+  isBreaking  Boolean   @default(false)
+  publishedAt DateTime
+  createdAt   DateTime  @default(now())
+  digestId    String?
+  digest      Digest?   @relation(fields: [digestId], references: [id])
+
+  @@index([category])
+  @@index([publishedAt])
+  @@index([importance])
+}
+
+model Digest {
+  id              String     @id @default(cuid())
+  sentAt          DateTime
+  type            String     // scheduled | breaking
+  newsItems       NewsItem[]
+  recipientCount  Int
+  createdAt       DateTime   @default(now())
+
+  @@index([sentAt])
+}
+
+model PolymarketEvent {
+  id          String   @id @default(cuid())
+  marketId    String   @unique
+  question    String
+  probability Float
+  volume      Float
+  change24h   Float    // 24h 概率变动
+  category    String
+  updatedAt   DateTime @updatedAt
+  createdAt   DateTime @default(now())
+
+  @@index([category])
+  @@index([updatedAt])
+}
