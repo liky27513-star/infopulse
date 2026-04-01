@@ -7,8 +7,17 @@ export async function GET() {
     const news = await prisma.newsItem.findMany({
       take: 50,
       orderBy: { publishedAt: 'desc' },
-      include: {
-        digest: true,
+      select: {
+        id: true,
+        title: true,
+        summary: true,
+        category: true,
+        sourceType: true,
+        importance: true,
+        source: true,
+        sourceUrl: true,
+        isBreaking: true,
+        publishedAt: true,
       },
     })
 

@@ -48,7 +48,7 @@ export default function AdminPage() {
         {/* Header */}
         <header className="text-center mb-12">
           <h1 className="text-4xl font-bold text-sky-900 mb-4">管理后台</h1>
-          <p className="text-gray-600">手动触发推送任务</p>
+          <p className="text-gray-600">手动测试 / 补发推送任务</p>
         </header>
 
         {/* Back Link */}
@@ -118,7 +118,7 @@ export default function AdminPage() {
         {/* Warning */}
         <div className="mt-8 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
           <p className="text-sm text-yellow-800">
-            <strong>注意：</strong>此页面仅供管理员使用。手动触发任务会立即执行数据采集和邮件发送，请谨慎操作。
+            <strong>注意：</strong>此页面仅供管理员使用。自动调度已支持运行；这里主要用于测试或补发。手动触发任务会立即执行数据采集和邮件发送，请谨慎操作。
           </p>
         </div>
       </div>

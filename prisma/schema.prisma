@@ -14,7 +14,7 @@ model Subscriber {
   id         String   @id @default(cuid())
   email      String   @unique
   name       String?
-  categories String   @default("ai,tech,politics,economy,crypto,prediction")
+  categories String   @default("ai,tech,science,water,politics,economy,crypto,prediction")
   isActive   Boolean  @default(true)
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
@@ -24,7 +24,9 @@ model NewsItem {
   id          String    @id @default(cuid())
   title       String
   summary     String    // AI 生成的中文摘要
-  category    String    // ai|tech|politics|economy|crypto|prediction
+  detail      String    @default("") // 更详细的中文介绍
+  category    String    // ai|tech|science|water|politics|economy|crypto|prediction
+  sourceType  String    @default("news") // news|official|paper|journal|community|social|market
   importance  Int       @default(5) // 1-10 重要性评分
   source      String
   sourceUrl   String    @unique
@@ -43,6 +45,7 @@ model Digest {
   id              String     @id @default(cuid())
   sentAt          DateTime
   type            String     // scheduled | breaking
+  overview        String?
   newsItems       NewsItem[]
   recipientCount  Int
   createdAt       DateTime   @default(now())

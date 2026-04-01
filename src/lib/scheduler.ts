@@ -1,83 +1,283 @@
-import cron from 'node-cron'
-import { DataCollector } from './collectors'
-import { processArticles, deduplicateArticles, sortByImportance, filterBreakingNews } from './ai'
-import { sendBulkEmails, DigestEmail, BreakingNewsEmail } from './email'
-import { prisma } from './db'
-import { config } from './config'
+import cron, { ScheduledTask } from 'node-cron'
 import { render } from '@react-email/components'
+import { ProcessedArticle, deduplicateArticles, filterBreakingNews, generateDigestOverview, processArticles, sortByImportance } from './ai'
+import { DataCollector, EditorialArticle } from './collectors'
+import { prisma } from './db'
+import { BreakingNewsEmail, DigestEmail, DigestEmailArticle, sendBulkEmails } from './email'
+import { Category, SourceType, config } from './config'
 
-// 主调度器类
+const globalForScheduler = globalThis as unknown as {
+  infopulseSchedulerStarted?: boolean
+}
+
+const subtractHours = (hours: number) => new Date(Date.now() - hours * 60 * 60 * 1000)
+
+const clampSinceToConfiguredWindow = (since: Date): Date => {
+  const maxLookback = subtractHours(config.collectors.newsApi.maxLookbackHours)
+  return since < maxLookback ? maxLookback : since
+}
+
+type SavedNewsRecord = {
+  id: string
+  title: string
+  summary: string
+  detail: string
+  category: string
+  sourceType: string
+  importance: number
+  source: string
+  sourceUrl: string
+  isBreaking: boolean
+  publishedAt: Date
+}
+
 export class Scheduler {
   private collector: DataCollector
-  private isRunning: boolean = false
+  private isRunning = false
+  private started = false
+  private tasks: ScheduledTask[] = []
 
   constructor() {
     this.collector = new DataCollector()
   }
 
-  // 启动定时任务
   start() {
-    console.log('Starting scheduler...')
+    if (this.started) {
+      console.log('Scheduler already started, skipping duplicate start')
+      return
+    }
 
-    // 定时推送任务：每天 09:00, 15:00, 21:00, 03:00 (北京时间)
-    const scheduledTimes = [
-      '0 9 * * *', // 09:00
-      '0 15 * * *', // 15:00
-      '0 21 * * *', // 21:00
-      '0 3 * * *', // 03:00
+    console.log(`Starting scheduler in ${config.scheduler.timezone}...`)
+
+    this.tasks = [
+      ...config.scheduler.digestCronExpressions.map((expression) =>
+        cron.schedule(
+          expression,
+          () => {
+            void this.runScheduledDigest()
+          },
+          {
+            timezone: config.scheduler.timezone,
+          }
+        )
+      ),
+      cron.schedule(
+        config.scheduler.breakingCronExpression,
+        () => {
+          void this.monitorBreakingNews()
+        },
+        {
+          timezone: config.scheduler.timezone,
+        }
+      ),
     ]
 
-    scheduledTimes.forEach((time) => {
-      cron.schedule(time, () => this.runScheduledDigest(), {
-        timezone: 'Asia/Shanghai',
-      })
-    })
-
-    // 突发新闻监控：每30分钟检查一次
-    cron.schedule('*/30 * * * *', () => this.monitorBreakingNews(), {
-      timezone: 'Asia/Shanghai',
-    })
-
+    this.started = true
     console.log('Scheduler started successfully')
   }
 
-  // 执行定时摘要推送
-  async runScheduledDigest() {
+  stop() {
+    this.tasks.forEach((task) => task.stop())
+    this.tasks = []
+    this.started = false
+    console.log('Scheduler stopped')
+  }
+
+  private async withLock(taskName: string, handler: () => Promise<void>) {
     if (this.isRunning) {
-      console.log('Another task is running, skipping...')
+      console.log(`Another task is already running, skipping ${taskName}`)
       return
     }
 
     this.isRunning = true
-    console.log('Starting scheduled digest...')
+    console.log(`Starting ${taskName}...`)
 
     try {
-      // 1. 采集数据
-      const data = await this.collector.collectAll()
+      await handler()
+      console.log(`${taskName} completed`)
+    } catch (error) {
+      console.error(`${taskName} error:`, error)
+    } finally {
+      this.isRunning = false
+    }
+  }
 
-      // 2. 合并所有新闻源
-      const allArticles = [...data.news, ...data.rss]
+  private async getActiveSubscribers() {
+    return prisma.subscriber.findMany({
+      where: { isActive: true },
+    })
+  }
 
-      // 3. AI处理
-      const processed = await processArticles(allArticles)
+  private async getDigestSince(): Promise<Date> {
+    const fallbackSince = subtractHours(config.scheduler.digestFallbackLookbackHours)
+    const lastDigest = await prisma.digest.findFirst({
+      where: { type: 'scheduled' },
+      orderBy: { sentAt: 'desc' },
+      select: { sentAt: true },
+    })
 
-      // 4. 去重和排序
-      const deduplicated = deduplicateArticles(processed)
-      const sorted = sortByImportance(deduplicated)
+    if (!lastDigest) {
+      return clampSinceToConfiguredWindow(fallbackSince)
+    }
 
-      // 5. 获取活跃订阅者
-      const subscribers = await prisma.subscriber.findMany({
-        where: { isActive: true },
+    const bufferedSince = new Date(lastDigest.sentAt.getTime() - config.scheduler.digestBufferMinutes * 60 * 1000)
+    return clampSinceToConfiguredWindow(bufferedSince)
+  }
+
+  private getBreakingSince(): Date {
+    return clampSinceToConfiguredWindow(subtractHours(config.scheduler.breakingLookbackHours))
+  }
+
+  private async collectDigestCandidates(): Promise<EditorialArticle[]> {
+    const since = await this.getDigestSince()
+
+    return this.collector.collectEditorialFeed({
+      mode: 'digest',
+      since,
+      maxArticles: config.scheduler.maxDigestArticles,
+    })
+  }
+
+  private async collectBreakingCandidates(): Promise<EditorialArticle[]> {
+    return this.collector.collectEditorialFeed({
+      mode: 'breaking',
+      since: this.getBreakingSince(),
+      maxArticles: config.scheduler.maxBreakingArticles,
+    })
+  }
+
+  private async prepareArticles(rawArticles: EditorialArticle[]) {
+    if (rawArticles.length === 0) {
+      return []
+    }
+
+    const processed = await processArticles(rawArticles)
+    const deduplicated = deduplicateArticles(processed)
+    return sortByImportance(deduplicated)
+  }
+
+  private async saveScheduledArticles(
+    digestId: string,
+    articles: Awaited<ReturnType<Scheduler['prepareArticles']>>
+  ): Promise<SavedNewsRecord[]> {
+    const saved: SavedNewsRecord[] = []
+
+    for (const article of articles) {
+      const record = await prisma.newsItem.upsert({
+        where: { sourceUrl: article.sourceUrl },
+        create: {
+          title: article.title,
+          summary: article.summary,
+          detail: article.detail,
+          category: article.category,
+          sourceType: article.sourceType,
+          importance: article.importance,
+          source: article.source,
+          sourceUrl: article.sourceUrl,
+          isBreaking: article.isBreaking,
+          publishedAt: article.publishedAt,
+          digestId,
+        },
+        update: {
+          title: article.title,
+          summary: article.summary,
+          detail: article.detail,
+          category: article.category,
+          sourceType: article.sourceType,
+          importance: article.importance,
+          source: article.source,
+          publishedAt: article.publishedAt,
+          digestId,
+          ...(article.isBreaking ? { isBreaking: true } : {}),
+        },
+        select: {
+          id: true,
+          title: true,
+          summary: true,
+          detail: true,
+          category: true,
+          sourceType: true,
+          importance: true,
+          source: true,
+          sourceUrl: true,
+          isBreaking: true,
+          publishedAt: true,
+        },
       })
 
+      saved.push(record)
+    }
+
+    return saved
+  }
+
+  private toDigestEmailArticle(record: SavedNewsRecord): DigestEmailArticle {
+    return {
+      id: record.id,
+      title: record.title,
+      summary: record.summary,
+      detailUrl: `${config.siteUrl}/news/${record.id}`,
+      sourceUrl: record.sourceUrl,
+      source: record.source,
+      category: record.category as Category,
+      sourceType: record.sourceType as SourceType,
+      importance: record.importance,
+      isBreaking: record.isBreaking,
+      publishedAt: record.publishedAt,
+    }
+  }
+
+  private async persistBreakingArticle(digestId: string, article: ProcessedArticle): Promise<SavedNewsRecord> {
+    return prisma.newsItem.create({
+      data: {
+        title: article.title,
+        summary: article.summary,
+        detail: article.detail,
+        category: article.category,
+        sourceType: article.sourceType,
+        importance: article.importance,
+        source: article.source,
+        sourceUrl: article.sourceUrl,
+        isBreaking: true,
+        publishedAt: article.publishedAt,
+        digestId,
+      },
+      select: {
+        id: true,
+        title: true,
+        summary: true,
+        detail: true,
+        category: true,
+        sourceType: true,
+        importance: true,
+        source: true,
+        sourceUrl: true,
+        isBreaking: true,
+        publishedAt: true,
+      },
+    })
+  }
+
+  async runScheduledDigest() {
+    await this.withLock('scheduled digest', async () => {
+      const subscribers = await this.getActiveSubscribers()
+
       if (subscribers.length === 0) {
-        console.log('No active subscribers, skipping email send')
+        console.log('No active subscribers, skipping scheduled digest')
         return
       }
 
-      // 6. 生成邮件内容
+      const rawArticles = await this.collectDigestCandidates()
+      const sorted = await this.prepareArticles(rawArticles)
+
+      if (sorted.length === 0) {
+        console.log('No fresh articles found for scheduled digest')
+        return
+      }
+
+      const selectedArticles = sorted.slice(0, 30)
       const digestTime = new Date().toLocaleString('zh-CN', {
-        timeZone: 'Asia/Shanghai',
+        timeZone: config.scheduler.timezone,
         year: 'numeric',
         month: '2-digit',
         day: '2-digit',
@@ -85,67 +285,55 @@ export class Scheduler {
         minute: '2-digit',
       })
 
+      const overview = await generateDigestOverview(selectedArticles)
+
+      const digest = await prisma.digest.create({
+        data: {
+          sentAt: new Date(),
+          type: 'scheduled',
+          overview,
+          recipientCount: 0,
+        },
+      })
+
+      const savedArticles = await this.saveScheduledArticles(digest.id, selectedArticles)
+      const emailArticles = savedArticles.map((record) => this.toDigestEmailArticle(record))
+
       const emailHtml = await render(
         DigestEmail({
-          articles: sorted.slice(0, 30), // 只发送前30条
+          overview,
+          articles: emailArticles,
           digestTime,
           siteUrl: config.siteUrl,
         })
       )
 
-      // 7. 发送邮件
-      const recipients = subscribers.map((s) => s.email)
-      const result = await sendBulkEmails(recipients, `📡 InfoPulse 智能简报 - ${digestTime}`, emailHtml)
+      const recipients = subscribers.map((subscriber) => subscriber.email)
+      const result = await sendBulkEmails(recipients, `📡 InfoPulse 今日情报 - ${digestTime}`, emailHtml)
 
-      // 8. 保存到数据库
-      const digest = await prisma.digest.create({
+      await prisma.digest.update({
+        where: { id: digest.id },
         data: {
-          sentAt: new Date(),
-          type: 'scheduled',
           recipientCount: result.success,
+          overview,
         },
       })
 
-      // 保存新闻项
-      for (const article of sorted.slice(0, 30)) {
-        await prisma.newsItem.create({
-          data: {
-            title: article.title,
-            summary: article.summary,
-            category: article.category,
-            importance: article.importance,
-            source: article.source,
-            sourceUrl: article.sourceUrl,
-            isBreaking: article.isBreaking,
-            publishedAt: article.publishedAt,
-            digestId: digest.id,
-          },
-        })
-      }
-
-      console.log(`Scheduled digest completed: ${result.success} emails sent`)
-    } catch (error) {
-      console.error('Scheduled digest error:', error)
-    } finally {
-      this.isRunning = false
-    }
+      console.log(`Scheduled digest sent: ${result.success} success, ${result.failed} failed`)
+    })
   }
 
-  // 监控突发新闻
   async monitorBreakingNews() {
-    console.log('Monitoring breaking news...')
+    await this.withLock('breaking news monitor', async () => {
+      const subscribers = await this.getActiveSubscribers()
 
-    try {
-      // 1. 采集最新数据
-      const data = await this.collector.collectAll()
+      if (subscribers.length === 0) {
+        console.log('No active subscribers, skipping breaking monitor')
+        return
+      }
 
-      // 2. 合并新闻源
-      const allArticles = [...data.news, ...data.rss]
-
-      // 3. AI处理
-      const processed = await processArticles(allArticles)
-
-      // 4. 过滤突发事件
+      const rawArticles = await this.collectBreakingCandidates()
+      const processed = await this.prepareArticles(rawArticles)
       const breaking = filterBreakingNews(processed)
 
       if (breaking.length === 0) {
@@ -153,69 +341,94 @@ export class Scheduler {
         return
       }
 
-      // 5. 检查是否已发送
       const unsentBreaking: typeof breaking = []
+
       for (const article of breaking) {
-        const exists = await prisma.newsItem.findFirst({
-          where: {
-            sourceUrl: article.sourceUrl,
-            isBreaking: true,
-          },
+        const exists = await prisma.newsItem.findUnique({
+          where: { sourceUrl: article.sourceUrl },
+          select: { id: true },
         })
+
         if (!exists) {
           unsentBreaking.push(article)
         }
       }
 
       if (unsentBreaking.length === 0) {
-        console.log('All breaking news already sent')
+        console.log('All breaking news already handled')
         return
       }
 
-      // 6. 发送突发新闻通知
-      const subscribers = await prisma.subscriber.findMany({
-        where: { isActive: true },
+      const recipients = subscribers.map((subscriber) => subscriber.email)
+      const breakingDigest = await prisma.digest.create({
+        data: {
+          sentAt: new Date(),
+          type: 'breaking',
+          recipientCount: 0,
+          overview: `检测到 ${unsentBreaking.length} 条需要立即关注的重点事件。`,
+        },
       })
 
-      const recipients = subscribers.map((s) => s.email)
+      let success = 0
+      let failed = 0
 
       for (const article of unsentBreaking) {
+        const savedRecord = await this.persistBreakingArticle(breakingDigest.id, article)
+        const emailArticle = this.toDigestEmailArticle(savedRecord)
+
         const emailHtml = await render(
           BreakingNewsEmail({
-            article,
+            article: {
+              title: emailArticle.title,
+              summary: emailArticle.summary,
+              detailUrl: emailArticle.detailUrl,
+              sourceUrl: emailArticle.sourceUrl,
+              source: emailArticle.source,
+              category: emailArticle.category,
+              sourceType: emailArticle.sourceType,
+              importance: emailArticle.importance,
+              publishedAt: emailArticle.publishedAt,
+            },
             siteUrl: config.siteUrl,
           })
         )
 
-        await sendBulkEmails(recipients, `⚡ 突发新闻: ${article.title}`, emailHtml)
-
-        // 保存到数据库
-        await prisma.newsItem.create({
-          data: {
-            title: article.title,
-            summary: article.summary,
-            category: article.category,
-            importance: article.importance,
-            source: article.source,
-            sourceUrl: article.sourceUrl,
-            isBreaking: true,
-            publishedAt: article.publishedAt,
-          },
-        })
+        const result = await sendBulkEmails(recipients, `⚡ 重点情报: ${article.title}`, emailHtml)
+        success += result.success
+        failed += result.failed
 
         console.log(`Breaking news sent: ${article.title}`)
       }
-    } catch (error) {
-      console.error('Breaking news monitoring error:', error)
-    }
+
+      await prisma.digest.update({
+        where: { id: breakingDigest.id },
+        data: {
+          recipientCount: success,
+        },
+      })
+
+      console.log(`Breaking digest sent: ${success} success, ${failed} failed`)
+    })
   }
 
-  // 手动触发（用于测试）
   async triggerManualDigest() {
     console.log('Manual digest triggered')
     await this.runScheduledDigest()
   }
 }
 
-// 创建全局调度器实例
 export const scheduler = new Scheduler()
+
+export function ensureSchedulerStarted() {
+  if (!config.scheduler.enableLocalCron) {
+    console.log('Local scheduler disabled; relying on external cron')
+    return
+  }
+
+  if (globalForScheduler.infopulseSchedulerStarted) {
+    return
+  }
+
+  scheduler.start()
+  globalForScheduler.infopulseSchedulerStarted = true
+}

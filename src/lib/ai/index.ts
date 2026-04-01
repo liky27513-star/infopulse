@@ -1,5 +1,14 @@
 // 使用Groq AI（免费）
-export { generateSummary, classifyNews, rateImportance, detectBreakingNews, processArticle, processArticles } from './groq-processor'
+export {
+  generateSummary,
+  generateDetailedIntroduction,
+  generateDigestOverview,
+  classifyNews,
+  rateImportance,
+  detectBreakingNews,
+  processArticle,
+  processArticles,
+} from './groq-processor'
 export type { ProcessedArticle } from './groq-processor'
 
 export {

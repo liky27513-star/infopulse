@@ -1,14 +1,15 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { config, Category } from '@/lib/config'
+import { config, Category, SourceType } from '@/lib/config'
 
 interface NewsItem {
   id: string
   title: string
   summary: string
   category: Category
+  sourceType: SourceType
   importance: number
   source: string
   sourceUrl: string
@@ -22,7 +23,7 @@ export default function Home() {
   const [selectedCategory, setSelectedCategory] = useState<Category | 'all'>('all')
 
   useEffect(() => {
-    fetchNews()
+    void fetchNews()
   }, [])
 
   const fetchNews = async () => {
@@ -39,19 +40,17 @@ export default function Home() {
 
   const filteredNews = selectedCategory === 'all' ? news : news.filter((item) => item.category === selectedCategory)
 
-  const categories: (Category | 'all')[] = ['all', 'ai', 'tech', 'politics', 'economy', 'crypto', 'prediction']
+  const categories: (Category | 'all')[] = ['all', ...config.defaultCategories]
 
   return (
     <main className="min-h-screen bg-gradient-to-b from-sky-50 to-white">
       <div className="container mx-auto px-4 py-8">
-        {/* Header */}
         <header className="text-center mb-12">
           <h1 className="text-5xl font-bold text-sky-900 mb-4">📡 InfoPulse</h1>
-          <p className="text-xl text-gray-600">智能新闻聚合系统</p>
-          <p className="text-sm text-gray-500 mt-2">实时追踪 AI、科技、政治、经济、加密货币、预测市场</p>
+          <p className="text-xl text-gray-600">多源情报聚合系统</p>
+          <p className="text-sm text-gray-500 mt-2">AI、科技、科学、水资源、政治、经济、加密与社区热议</p>
         </header>
 
-        {/* Navigation */}
         <nav className="flex justify-center gap-4 mb-8">
           <Link href="/subscribe" className="px-6 py-2 bg-sky-600 text-white rounded-lg hover:bg-sky-700 transition">
             订阅
@@ -61,7 +60,6 @@ export default function Home() {
           </Link>
         </nav>
 
-        {/* Category Filter */}
         <div className="flex flex-wrap justify-center gap-2 mb-8">
           {categories.map((cat) => (
             <button
@@ -76,7 +74,6 @@ export default function Home() {
           ))}
         </div>
 
-        {/* News List */}
         {loading ? (
           <div className="text-center py-12">
             <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-sky-600"></div>
@@ -104,31 +101,38 @@ function NewsCard({ item }: { item: NewsItem }) {
 
   return (
     <div className="bg-white rounded-lg shadow-md hover:shadow-lg transition p-6">
-      <div className="flex items-start justify-between mb-2">
-        <span className="text-xs font-semibold text-sky-600 uppercase">{config.categories[item.category]}</span>
+      <div className="flex items-start justify-between mb-2 gap-3">
+        <div className="space-y-1">
+          <span className="inline-flex text-xs font-semibold text-sky-700 bg-sky-50 px-2 py-1 rounded-full">
+            {config.categories[item.category]}
+          </span>
+          <div className="text-xs text-gray-500">{config.sourceTypes[item.sourceType]}</div>
+        </div>
         <span className="text-lg">{importanceEmoji}</span>
       </div>
 
-      <h3 className="text-lg font-bold text-gray-900 mb-2">
-        {item.isBreaking && <span className="text-red-600 mr-1">⚡</span>}
-        {item.title}
-      </h3>
+      <Link href={`/news/${item.id}`} className="block hover:text-sky-700">
+        <h3 className="text-lg font-bold text-gray-900 mb-2">
+          {item.isBreaking && <span className="text-red-600 mr-1">⚡</span>}
+          {item.title}
+        </h3>
+      </Link>
 
-      <p className="text-sm text-gray-600 mb-4 line-clamp-3">{item.summary}</p>
+      <p className="text-sm text-gray-600 mb-4 line-clamp-4">{item.summary}</p>
 
-      <div className="flex items-center justify-between text-xs text-gray-500">
+      <div className="flex items-center justify-between text-xs text-gray-500 mb-4">
         <span>{item.source}</span>
-        <span>{new Date(item.publishedAt).toLocaleDateString('zh-CN')}</span>
+        <span>{new Date(item.publishedAt).toLocaleString('zh-CN')}</span>
       </div>
 
-      <a
-        href={item.sourceUrl}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="mt-4 block text-center text-sm text-sky-600 hover:text-sky-700"
-      >
-        查看原文 →
-      </a>
+      <div className="flex gap-3 text-sm">
+        <Link href={`/news/${item.id}`} className="text-sky-600 hover:text-sky-700">
+          查看详情 →
+        </Link>
+        <a href={item.sourceUrl} target="_blank" rel="noopener noreferrer" className="text-gray-500 hover:text-gray-700">
+          原始来源
+        </a>
+      </div>
     </div>
   )
 }

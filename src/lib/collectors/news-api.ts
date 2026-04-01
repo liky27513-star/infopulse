@@ -1,5 +1,5 @@
 import axios from 'axios'
-import { config, Category } from '../config'
+import { Category, SourceType, config } from '../config'
 
 export interface NewsArticle {
   title: string
@@ -8,6 +8,32 @@ export interface NewsArticle {
   source: string
   publishedAt: Date
   category: Category
+  sourceType: SourceType
+}
+
+interface SearchNewsOptions {
+  since?: Date
+  pageSize?: number
+  domains?: string[]
+}
+
+interface TopHeadlineOptions {
+  category: string
+  localCategory: Category
+  country?: string
+  pageSize?: number
+}
+
+interface NewsAPIResponse {
+  articles?: Array<{
+    title?: string
+    description?: string | null
+    url?: string
+    publishedAt?: string
+    source?: {
+      name?: string
+    }
+  }>
 }
 
 export class NewsAPICollector {
@@ -19,110 +45,137 @@ export class NewsAPICollector {
     this.baseUrl = config.collectors.newsApi.baseUrl
   }
 
-  async fetchTopHeadlines(category: string = 'technology'): Promise<NewsArticle[]> {
-    if (!this.apiKey) {
-      console.warn('NewsAPI key not configured, skipping...')
-      return []
-    }
-
-    try {
-      const response = await axios.get(`${this.baseUrl}/top-headlines`, {
-        params: {
-          apiKey: this.apiKey,
-          category: category,
-          language: 'en',
-          pageSize: 20,
-        },
-        timeout: config.collectors.newsApi.timeout,
-      })
-
-      return response.data.articles.map((article: any) => ({
-        title: article.title,
-        description: article.description || '',
-        url: article.url,
-        source: article.source.name,
-        publishedAt: new Date(article.publishedAt),
-        category: 'tech' as Category,
-      }))
-    } catch (error) {
-      console.error('NewsAPI fetch error:', error)
-      return []
-    }
+  private get clampedDefaultSince(): Date {
+    return new Date(Date.now() - config.collectors.newsApi.defaultLookbackHours * 60 * 60 * 1000)
   }
 
-  async searchNews(query: string, category: Category): Promise<NewsArticle[]> {
+  private normalizeSince(since?: Date): Date {
+    if (!since) {
+      return this.clampedDefaultSince
+    }
+
+    const maxLookbackDate = new Date(Date.now() - config.collectors.newsApi.maxLookbackHours * 60 * 60 * 1000)
+    return since < maxLookbackDate ? maxLookbackDate : since
+  }
+
+  private normalizeArticles(articles: NewsAPIResponse['articles'], category: Category): NewsArticle[] {
+    if (!articles?.length) {
+      return []
+    }
+
+    return articles
+      .filter((article) => article.title && article.url)
+      .map((article) => ({
+        title: article.title || '',
+        description: article.description || '',
+        url: article.url || '',
+        source: article.source?.name || 'NewsAPI',
+        publishedAt: article.publishedAt ? new Date(article.publishedAt) : new Date(),
+        category,
+        sourceType: 'news' as const,
+      }))
+  }
+
+  private async fetchEverything(query: string, category: Category, options: SearchNewsOptions = {}): Promise<NewsArticle[]> {
     if (!this.apiKey) {
       console.warn('NewsAPI key not configured, skipping...')
       return []
     }
 
+    const since = this.normalizeSince(options.since)
+
     try {
-      const response = await axios.get(`${this.baseUrl}/everything`, {
+      const response = await axios.get<NewsAPIResponse>(`${this.baseUrl}/everything`, {
         params: {
           apiKey: this.apiKey,
           q: query,
           language: 'en',
           sortBy: 'publishedAt',
-          pageSize: 10,
+          searchIn: 'title,description',
+          domains: (options.domains || config.collectors.newsApi.trustedDomains).join(','),
+          from: since.toISOString(),
+          pageSize: options.pageSize || config.collectors.newsApi.pageSize,
         },
         timeout: config.collectors.newsApi.timeout,
       })
 
-      return response.data.articles.map((article: any) => ({
-        title: article.title,
-        description: article.description || '',
-        url: article.url,
-        source: article.source.name,
-        publishedAt: new Date(article.publishedAt),
-        category: category,
-      }))
+      return this.normalizeArticles(response.data.articles, category)
     } catch (error) {
-      console.error('NewsAPI search error:', error)
+      console.error(`NewsAPI search error for ${category}:`, error)
       return []
     }
   }
 
-  // 获取AI相关新闻
-  async fetchAINews(): Promise<NewsArticle[]> {
-    const queries = ['OpenAI', 'Anthropic Claude', 'Google DeepMind', 'Meta AI', 'artificial intelligence']
-    const articles: NewsArticle[] = []
-
-    for (const query of queries) {
-      const results = await this.searchNews(query, 'ai')
-      articles.push(...results)
+  async fetchTopHeadlines(options: TopHeadlineOptions): Promise<NewsArticle[]> {
+    if (!this.apiKey) {
+      console.warn('NewsAPI key not configured, skipping...')
+      return []
     }
 
-    return articles
-  }
+    try {
+      const response = await axios.get<NewsAPIResponse>(`${this.baseUrl}/top-headlines`, {
+        params: {
+          apiKey: this.apiKey,
+          category: options.category,
+          country: options.country || 'us',
+          pageSize: options.pageSize || Math.min(config.collectors.newsApi.pageSize, 10),
+        },
+        timeout: config.collectors.newsApi.timeout,
+      })
 
-  // 获取加密货币新闻
-  async fetchCryptoNews(): Promise<NewsArticle[]> {
-    const queries = ['Bitcoin', 'Ethereum', 'cryptocurrency', 'DeFi']
-    const articles: NewsArticle[] = []
-
-    for (const query of queries) {
-      const results = await this.searchNews(query, 'crypto')
-      articles.push(...results)
+      return this.normalizeArticles(response.data.articles, options.localCategory)
+    } catch (error) {
+      console.error(`NewsAPI top headlines error for ${options.category}:`, error)
+      return []
     }
-
-    return articles
   }
 
-  // 获取政治新闻
-  async fetchPoliticsNews(): Promise<NewsArticle[]> {
-    return this.searchNews('politics geopolitics', 'politics')
+  async fetchAINews(since?: Date): Promise<NewsArticle[]> {
+    return this.fetchEverything(config.collectors.newsApi.categoryQueries.ai, 'ai', { since })
   }
 
-  // 获取经济新闻
-  async fetchEconomyNews(): Promise<NewsArticle[]> {
-    const queries = ['economy', 'Federal Reserve', 'stock market', 'finance']
-    const articles: NewsArticle[] = []
+  async fetchTechNews(since?: Date): Promise<NewsArticle[]> {
+    return this.fetchEverything(config.collectors.newsApi.categoryQueries.tech, 'tech', { since })
+  }
 
-    for (const query of queries) {
-      const results = await this.searchNews(query, 'economy')
-      articles.push(...results)
-    }
+  async fetchScienceNews(since?: Date): Promise<NewsArticle[]> {
+    return this.fetchEverything(config.collectors.newsApi.categoryQueries.science, 'science', { since })
+  }
 
-    return articles
+  async fetchWaterNews(since?: Date): Promise<NewsArticle[]> {
+    return this.fetchEverything(config.collectors.newsApi.categoryQueries.water, 'water', { since })
+  }
+
+  async fetchCryptoNews(since?: Date): Promise<NewsArticle[]> {
+    return this.fetchEverything(config.collectors.newsApi.categoryQueries.crypto, 'crypto', { since })
+  }
+
+  async fetchPoliticsNews(since?: Date): Promise<NewsArticle[]> {
+    return this.fetchEverything(config.collectors.newsApi.categoryQueries.politics, 'politics', { since })
+  }
+
+  async fetchEconomyNews(since?: Date): Promise<NewsArticle[]> {
+    return this.fetchEverything(config.collectors.newsApi.categoryQueries.economy, 'economy', { since })
+  }
+
+  async fetchHeadlineMix(): Promise<NewsArticle[]> {
+    const headlineGroups = await Promise.all(
+      config.collectors.newsApi.headlineCategories.map((headlineConfig) =>
+        this.fetchTopHeadlines({
+          category: headlineConfig.category,
+          country: headlineConfig.country,
+          localCategory: headlineConfig.localCategory as Category,
+        })
+      )
+    )
+
+    return headlineGroups.flat()
+  }
+
+  async fetchBreakingWatchlist(since?: Date): Promise<NewsArticle[]> {
+    return this.fetchEverything(config.collectors.newsApi.breakingWatchQuery, 'tech', {
+      since,
+      pageSize: Math.min(config.collectors.newsApi.pageSize, 15),
+    })
   }
 }

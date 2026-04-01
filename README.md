@@ -4,10 +4,10 @@
 
 ## 功能特性
 
-- ✅ **定时推送** - 每天 09:00、15:00、21:00、03:00（北京时间）自动推送
-- ✅ **突发新闻实时推送** - 检测到重大事件立即通知
+- ✅ **定时推送** - 每天 08:00、14:00、20:00（北京时间）自动推送
+- ✅ **突发新闻监控** - 默认每 30 分钟检查一次重大事件
 - ✅ **AI 智能处理** - 使用 Claude API 进行摘要、分类、重要性评分
-- ✅ **多数据源** - NewsAPI、CoinGecko、Polymarket、RSS Feeds、Alpha Vantage
+- ✅ **多数据源** - NewsAPI + RSS 双路聚合，外加 CoinGecko、Polymarket、Alpha Vantage
 - ✅ **Web 界面** - 可公开访问的网站，支持订阅管理
 - ✅ **邮件推送** - 精美的 HTML 邮件模板
 
@@ -143,7 +143,10 @@ git push -u origin main
 
 ### 4. 配置 Cron Jobs
 
-Vercel 会自动读取 `vercel.json` 中的 cron 配置。
+Vercel 会自动读取 `vercel.json` 中的 cron 配置：
+
+- `/api/cron/digest`：北京时间 08:00 / 14:00 / 20:00
+- `/api/cron/breaking`：每 30 分钟一次
 
 需要添加环境变量 `CRON_SECRET` 用于验证 cron 请求：
 
@@ -164,6 +167,8 @@ CRON_SECRET=your_random_secret_here
 访问 `/admin` 页面，输入管理员密钥（`ADMIN_SECRET_KEY`）可以手动触发：
 - 定时摘要推送
 - 突发新闻监控
+
+> 管理后台现在主要用于测试/补发；如果是 PM2、自建服务器或 `npm start` 长驻进程，服务启动后会自动注册本地 cron。
 
 ### 查看历史记录
 
@@ -236,6 +241,12 @@ npm run lint
 - 检查 API 密钥是否有效
 - 查看控制台错误日志
 - 确认 API 额度是否用尽
+
+### 定时任务没有自动运行
+
+- **自托管 / PM2 / `npm start`**：确认 `.env` 中 `ENABLE_LOCAL_CRON=true`
+- **Vercel**：确认 `CRON_SECRET` 已配置，且 `vercel.json` 中的 cron 已生效
+- 如果你使用的是 Vercel 免费计划，请额外确认当前套餐是否支持你配置的 cron 频率
 
 ### AI 处理失败
 

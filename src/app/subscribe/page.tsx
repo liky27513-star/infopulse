@@ -7,18 +7,11 @@ import { config, Category } from '@/lib/config'
 export default function SubscribePage() {
   const [email, setEmail] = useState('')
   const [name, setName] = useState('')
-  const [selectedCategories, setSelectedCategories] = useState<Category[]>([
-    'ai',
-    'tech',
-    'politics',
-    'economy',
-    'crypto',
-    'prediction',
-  ])
+  const [selectedCategories, setSelectedCategories] = useState<Category[]>([...config.defaultCategories])
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState('')
 
-  const categories: Category[] = ['ai', 'tech', 'politics', 'economy', 'crypto', 'prediction']
+  const categories: Category[] = [...config.defaultCategories]
 
   const toggleCategory = (category: Category) => {
     setSelectedCategories((prev) =>
@@ -60,19 +53,16 @@ export default function SubscribePage() {
 
   return (
     <main className="min-h-screen bg-gradient-to-b from-sky-50 to-white">
-      <div className="container mx-auto px-4 py-8 max-w-2xl">
-        {/* Header */}
+      <div className="container mx-auto px-4 py-8 max-w-3xl">
         <header className="text-center mb-12">
           <h1 className="text-4xl font-bold text-sky-900 mb-4">订阅 InfoPulse</h1>
-          <p className="text-gray-600">获取最新的 AI、科技、政治、经济、加密货币、预测市场资讯</p>
+          <p className="text-gray-600">获取 AI、科技、科学、水资源、政治、经济、加密货币与预测市场的情报简报</p>
         </header>
 
-        {/* Back Link */}
         <Link href="/" className="inline-block mb-8 text-sky-600 hover:text-sky-700">
           ← 返回首页
         </Link>
 
-        {/* Subscribe Form */}
         <form onSubmit={handleSubmit} className="bg-white rounded-lg shadow-md p-8">
           <div className="mb-6">
             <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">
@@ -105,7 +95,7 @@ export default function SubscribePage() {
 
           <div className="mb-6">
             <label className="block text-sm font-medium text-gray-700 mb-2">关注的领域</label>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
               {categories.map((category) => (
                 <label
                   key={category}
@@ -143,16 +133,6 @@ export default function SubscribePage() {
             </div>
           )}
         </form>
-
-        {/* Unsubscribe */}
-        <div className="mt-8 text-center">
-          <p className="text-sm text-gray-600">
-            已订阅？{' '}
-            <Link href="/unsubscribe" className="text-sky-600 hover:text-sky-700">
-              管理订阅
-            </Link>
-          </p>
-        </div>
       </div>
     </main>
   )

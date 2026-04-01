@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
+import { config } from '@/lib/config'
 
 // 订阅
 export async function POST(request: NextRequest) {
@@ -22,7 +23,7 @@ export async function POST(request: NextRequest) {
         where: { email },
         data: {
           name: name || existing.name,
-          categories: categories || existing.categories,
+          categories: categories || existing.categories || config.defaultCategories.join(','),
           isActive: true,
         },
       })
@@ -39,7 +40,7 @@ export async function POST(request: NextRequest) {
       data: {
         email,
         name,
-        categories: categories || 'ai,tech,politics,economy,crypto,prediction',
+        categories: categories || config.defaultCategories.join(','),
       },
     })
 

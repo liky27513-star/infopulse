@@ -1,54 +1,102 @@
 import * as React from 'react'
-import { Html, Head, Body, Container, Heading, Text, Link, Section, Hr } from '@react-email/components'
-import { ProcessedArticle } from '../../ai/groq-processor'
-import { config, Category } from '../../config'
+import {
+  Html,
+  Head,
+  Body,
+  Container,
+  Heading,
+  Text,
+  Link,
+  Section,
+  Hr,
+  Button,
+} from '@react-email/components'
+import { Category, SourceType, config } from '../../config'
+
+export interface DigestEmailArticle {
+  id: string
+  title: string
+  summary: string
+  detailUrl: string
+  sourceUrl: string
+  source: string
+  category: Category
+  sourceType: SourceType
+  importance: number
+  isBreaking: boolean
+  publishedAt: Date
+}
 
 interface DigestEmailProps {
-  articles: ProcessedArticle[]
+  overview: string
+  articles: DigestEmailArticle[]
   digestTime: string
   siteUrl: string
 }
 
-export function DigestEmail({ articles, digestTime, siteUrl }: DigestEmailProps) {
-  // 按类别分组
-  const groupedArticles = articles.reduce((acc, article) => {
-    if (!acc[article.category]) {
-      acc[article.category] = []
-    }
-    acc[article.category].push(article)
-    return acc
-  }, {} as Record<Category, ProcessedArticle[]>)
+export function DigestEmail({ overview, articles, digestTime, siteUrl }: DigestEmailProps) {
+  const sortedArticles = [...articles].sort((a, b) => b.publishedAt.getTime() - a.publishedAt.getTime())
 
   return (
     <Html>
       <Head />
       <Body style={mainStyle}>
         <Container style={containerStyle}>
-          <Heading style={headerStyle}>📡 InfoPulse 智能简报</Heading>
+          <Heading style={headerStyle}>📡 InfoPulse 今日情报</Heading>
           <Text style={timeStyle}>{digestTime}</Text>
+
+          <Section style={overviewBoxStyle}>
+            <Text style={overviewLabelStyle}>今日总览</Text>
+            <Text style={overviewTextStyle}>{overview}</Text>
+          </Section>
+
+          <Section style={statsRowStyle}>
+            <StatCard label="事件数" value={String(sortedArticles.length)} />
+            <StatCard label="重点领域" value={Array.from(new Set(sortedArticles.slice(0, 4).map((article) => config.categories[article.category]))).join(' / ')} />
+          </Section>
+
           <Hr style={hrStyle} />
 
-          {Object.entries(groupedArticles).map(([category, categoryArticles]) => (
-            <Section key={category} style={sectionStyle}>
-              <Heading as="h2" style={categoryHeaderStyle}>
-                {getCategoryEmoji(category as Category)} {config.categories[category as Category]}
-              </Heading>
-              {categoryArticles.map((article, index) => (
-                <ArticleItem key={index} article={article} />
-              ))}
-            </Section>
-          ))}
+          <Section>
+            <Heading as="h2" style={sectionTitleStyle}>
+              时间线摘要
+            </Heading>
+
+            {sortedArticles.map((article) => (
+              <Section key={article.id} style={articleStyle}>
+                <Text style={metaStyle}>
+                  {formatPublishedAt(article.publishedAt)} · {getCategoryEmoji(article.category)} {config.categories[article.category]} · {config.sourceTypes[article.sourceType]}
+                </Text>
+                <Text style={articleTitleStyle}>
+                  <Link href={article.detailUrl} style={titleLinkStyle}>
+                    {article.isBreaking ? '⚡ ' : ''}
+                    {article.title}
+                  </Link>
+                </Text>
+                <Text style={articleSummaryStyle}>{article.summary}</Text>
+                <Text style={sourceTextStyle}>来源：{article.source}</Text>
+                <Section style={buttonRowStyle}>
+                  <Button href={article.detailUrl} style={primaryButtonStyle}>
+                    查看详情
+                  </Button>
+                  <Button href={article.sourceUrl} style={secondaryButtonStyle}>
+                    原始来源
+                  </Button>
+                </Section>
+              </Section>
+            ))}
+          </Section>
 
           <Hr style={hrStyle} />
           <Section style={footerStyle}>
             <Text style={footerTextStyle}>
-              📊 完整报告:{' '}
+              详情页与历史归档：{' '}
               <Link href={siteUrl} style={linkStyle}>
                 {siteUrl}
               </Link>
             </Text>
             <Text style={footerTextStyle}>
-              ⚙️ 管理订阅:{' '}
+              管理订阅：{' '}
               <Link href={`${siteUrl}/subscribe`} style={linkStyle}>
                 {siteUrl}/subscribe
               </Link>
@@ -60,23 +108,25 @@ export function DigestEmail({ articles, digestTime, siteUrl }: DigestEmailProps)
   )
 }
 
-function ArticleItem({ article }: { article: ProcessedArticle }) {
-  const importanceEmoji = article.importance >= 9 ? '🔴' : article.importance >= 7 ? '🟡' : '⚪'
-
+function StatCard({ label, value }: { label: string; value: string }) {
   return (
-    <Section style={articleStyle}>
-      <Text style={articleTitleStyle}>
-        {importanceEmoji} {article.isBreaking && '⚡ '} {article.title}
-      </Text>
-      <Text style={articleSummaryStyle}>{article.summary}</Text>
-      <Link href={article.sourceUrl} style={sourceLinkStyle}>
-        来源: {article.source} →
-      </Link>
+    <Section style={statCardStyle}>
+      <Text style={statLabelStyle}>{label}</Text>
+      <Text style={statValueStyle}>{value}</Text>
     </Section>
   )
 }
 
-// 样式定义
+const formatPublishedAt = (date: Date) =>
+  new Intl.DateTimeFormat('zh-CN', {
+    timeZone: config.timeZone,
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).format(date)
+
 const mainStyle: React.CSSProperties = {
   backgroundColor: '#f6f9fc',
   fontFamily: '-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Ubuntu,sans-serif',
@@ -84,12 +134,12 @@ const mainStyle: React.CSSProperties = {
 
 const containerStyle: React.CSSProperties = {
   margin: '0 auto',
-  padding: '20px 0 48px',
-  maxWidth: '600px',
+  padding: '24px 0 48px',
+  maxWidth: '680px',
 }
 
 const headerStyle: React.CSSProperties = {
-  fontSize: '28px',
+  fontSize: '30px',
   fontWeight: 'bold',
   textAlign: 'center',
   margin: '0 0 10px',
@@ -103,50 +153,127 @@ const timeStyle: React.CSSProperties = {
   margin: '0 0 20px',
 }
 
+const overviewBoxStyle: React.CSSProperties = {
+  backgroundColor: '#e0f2fe',
+  border: '1px solid #7dd3fc',
+  borderRadius: '12px',
+  padding: '18px',
+  marginBottom: '18px',
+}
+
+const overviewLabelStyle: React.CSSProperties = {
+  fontSize: '12px',
+  color: '#0369a1',
+  fontWeight: 'bold',
+  margin: '0 0 8px',
+  textTransform: 'uppercase',
+}
+
+const overviewTextStyle: React.CSSProperties = {
+  fontSize: '16px',
+  lineHeight: '1.7',
+  color: '#0f172a',
+  margin: 0,
+}
+
+const statsRowStyle: React.CSSProperties = {
+  display: 'flex',
+  gap: '12px',
+  marginBottom: '18px',
+}
+
+const statCardStyle: React.CSSProperties = {
+  display: 'inline-block',
+  width: '48%',
+  backgroundColor: '#ffffff',
+  borderRadius: '10px',
+  padding: '14px',
+  border: '1px solid #e2e8f0',
+}
+
+const statLabelStyle: React.CSSProperties = {
+  fontSize: '12px',
+  color: '#64748b',
+  margin: '0 0 8px',
+}
+
+const statValueStyle: React.CSSProperties = {
+  fontSize: '16px',
+  fontWeight: 'bold',
+  color: '#0f172a',
+  margin: 0,
+}
+
 const hrStyle: React.CSSProperties = {
   borderColor: '#e2e8f0',
   margin: '20px 0',
 }
 
-const sectionStyle: React.CSSProperties = {
-  marginBottom: '30px',
-}
-
-const categoryHeaderStyle: React.CSSProperties = {
-  fontSize: '20px',
-  fontWeight: 'bold',
-  marginBottom: '15px',
+const sectionTitleStyle: React.CSSProperties = {
+  fontSize: '22px',
   color: '#0369a1',
-  borderBottom: '2px solid #0369a1',
-  paddingBottom: '5px',
+  margin: '0 0 16px',
 }
 
 const articleStyle: React.CSSProperties = {
-  marginBottom: '20px',
-  padding: '15px',
+  marginBottom: '16px',
+  padding: '16px',
   backgroundColor: '#ffffff',
-  borderRadius: '8px',
+  borderRadius: '10px',
   border: '1px solid #e2e8f0',
 }
 
+const metaStyle: React.CSSProperties = {
+  fontSize: '12px',
+  color: '#64748b',
+  margin: '0 0 8px',
+}
+
 const articleTitleStyle: React.CSSProperties = {
-  fontSize: '16px',
+  fontSize: '18px',
   fontWeight: 'bold',
   margin: '0 0 10px',
-  color: '#1e293b',
+}
+
+const titleLinkStyle: React.CSSProperties = {
+  color: '#0f172a',
+  textDecoration: 'none',
 }
 
 const articleSummaryStyle: React.CSSProperties = {
   fontSize: '14px',
-  color: '#475569',
+  color: '#334155',
   margin: '0 0 10px',
-  lineHeight: '1.6',
+  lineHeight: '1.7',
 }
 
-const sourceLinkStyle: React.CSSProperties = {
+const sourceTextStyle: React.CSSProperties = {
   fontSize: '12px',
-  color: '#0284c7',
+  color: '#64748b',
+  margin: '0 0 12px',
+}
+
+const buttonRowStyle: React.CSSProperties = {
+  display: 'flex',
+  gap: '10px',
+}
+
+const primaryButtonStyle: React.CSSProperties = {
+  backgroundColor: '#0284c7',
+  color: '#ffffff',
+  padding: '10px 18px',
+  borderRadius: '6px',
   textDecoration: 'none',
+  fontSize: '13px',
+}
+
+const secondaryButtonStyle: React.CSSProperties = {
+  backgroundColor: '#e2e8f0',
+  color: '#0f172a',
+  padding: '10px 18px',
+  borderRadius: '6px',
+  textDecoration: 'none',
+  fontSize: '13px',
 }
 
 const footerStyle: React.CSSProperties = {
@@ -168,10 +295,13 @@ function getCategoryEmoji(category: Category): string {
   const emojis: Record<Category, string> = {
     ai: '🤖',
     tech: '💻',
+    science: '🧪',
+    water: '💧',
     politics: '🏛️',
     economy: '💰',
     crypto: '🪙',
     prediction: '🔮',
   }
+
   return emojis[category] || '📰'
 }

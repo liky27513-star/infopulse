@@ -75,6 +75,8 @@ const CRYPTO_KEYWORDS = ['bitcoin', 'ethereum', 'sec', 'etf', 'crypto regulation
 
 // 政治监控关键词
 const POLITICS_KEYWORDS = ['election', 'president', 'congress', 'policy', 'sanctions', 'treaty']
+const SCIENCE_KEYWORDS = ['breakthrough', 'nature', 'science', 'physics', 'mathematics', 'peer-reviewed']
+const WATER_KEYWORDS = ['hydrology', 'water resources', 'groundwater', 'drought', 'flood', 'watershed']
 
 // 检测特定领域的突发新闻
 export function detectCategoryBreakingNews(article: ProcessedArticle): {
@@ -93,6 +95,12 @@ export function detectCategoryBreakingNews(article: ProcessedArticle): {
       break
     case 'politics':
       keywords = POLITICS_KEYWORDS
+      break
+    case 'science':
+      keywords = SCIENCE_KEYWORDS
+      break
+    case 'water':
+      keywords = WATER_KEYWORDS
       break
     default:
       return { isBreaking: article.isBreaking, category: article.category, keywords: [] }
