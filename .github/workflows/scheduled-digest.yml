@@ -1,0 +1,29 @@
+name: Scheduled Digest
+
+on:
+  schedule:
+    - cron: '0 0,6,12 * * *'
+  workflow_dispatch:
+
+jobs:
+  trigger-digest:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger digest endpoint
+        env:
+          INFOPULSE_BASE_URL: ${{ vars.INFOPULSE_BASE_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$INFOPULSE_BASE_URL" ]; then
+            echo "Missing repository variable INFOPULSE_BASE_URL"
+            exit 1
+          fi
+
+          if [ -z "$CRON_SECRET" ]; then
+            echo "Missing repository secret CRON_SECRET"
+            exit 1
+          fi
+
+          curl --fail --show-error --silent \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "$INFOPULSE_BASE_URL/api/cron/digest"
