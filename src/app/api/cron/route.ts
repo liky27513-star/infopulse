@@ -3,7 +3,7 @@ import { isAuthorizedCronRequest, unauthorizedCronResponse, runCronTask, shouldR
 
 // Vercel Cron Jobs 端点
 export async function GET(request: NextRequest) {
-  if (!isAuthorizedCronRequest(request)) {
+  if (!(await isAuthorizedCronRequest(request))) {
     return unauthorizedCronResponse()
   }
 

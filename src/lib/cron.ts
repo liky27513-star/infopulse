@@ -1,18 +1,47 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { createRemoteJWKSet, jwtVerify } from 'jose'
 import { config } from './config'
 import { scheduler } from './scheduler'
 
 export type CronTaskType = 'digest' | 'breaking'
 
-export function isAuthorizedCronRequest(request: NextRequest): boolean {
-  const cronSecret = process.env.CRON_SECRET
+const githubActionsIssuer = 'https://token.actions.githubusercontent.com'
+const githubActionsAudience = 'infopulse-cron'
+const githubRepo = 'liky27513-star/infopulse'
+const githubMainRef = 'refs/heads/main'
+const githubActionsJwks = createRemoteJWKSet(new URL(`${githubActionsIssuer}/.well-known/jwks`))
 
-  if (!cronSecret) {
-    console.warn('CRON_SECRET is not configured')
+async function isAuthorizedGitHubActionsToken(token: string): Promise<boolean> {
+  try {
+    const { payload } = await jwtVerify(token, githubActionsJwks, {
+      issuer: githubActionsIssuer,
+      audience: githubActionsAudience,
+    })
+
+    return payload.repository === githubRepo && payload.ref === githubMainRef
+  } catch (error) {
+    console.warn('GitHub Actions OIDC auth failed:', error)
     return false
   }
+}
 
-  return request.headers.get('authorization') === `Bearer ${cronSecret}`
+export async function isAuthorizedCronRequest(request: NextRequest): Promise<boolean> {
+  const cronSecret = process.env.CRON_SECRET
+  const authorization = request.headers.get('authorization')
+
+  if (cronSecret && authorization === `Bearer ${cronSecret}`) {
+    return true
+  }
+
+  if (authorization?.startsWith('Bearer ')) {
+    return isAuthorizedGitHubActionsToken(authorization.slice('Bearer '.length))
+  }
+
+  if (!cronSecret) {
+    console.warn('CRON_SECRET is not configured and no GitHub OIDC token was provided')
+  }
+
+  return false
 }
 
 export function unauthorizedCronResponse() {

@@ -5,6 +5,9 @@ on:
     - cron: '0 0,6,12 * * *'
   workflow_dispatch:
 
+permissions:
+  id-token: write
+
 jobs:
   trigger-digest:
     runs-on: ubuntu-latest
@@ -12,14 +15,13 @@ jobs:
       INFOPULSE_BASE_URL: https://infopulse-five.vercel.app
     steps:
       - name: Trigger digest endpoint
-        env:
-          CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
-          if [ -z "$CRON_SECRET" ]; then
-            echo "Missing repository secret CRON_SECRET"
-            exit 1
-          fi
+          OIDC_RESPONSE=$(curl --fail --silent \
+            -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=infopulse-cron")
+
+          OIDC_TOKEN=$(python -c "import json,sys; print(json.load(sys.stdin)['value'])" <<< "$OIDC_RESPONSE")
 
           curl --fail --show-error --silent \
-            -H "Authorization: Bearer $CRON_SECRET" \
+            -H "Authorization: Bearer $OIDC_TOKEN" \
             "$INFOPULSE_BASE_URL/api/cron/digest"
